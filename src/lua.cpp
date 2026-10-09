@@ -4,6 +4,7 @@
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <vector>
 
 namespace mod::lua
 {
@@ -25,6 +26,13 @@ namespace mod::lua
 		constexpr uintptr_t k_lua_typename = 0x1A12330;
 		constexpr uintptr_t k_lua_toboolean = 0x1A120C0;
 		constexpr uintptr_t k_lua_sethook = 0x1A20DC0;
+		constexpr uintptr_t k_lua_pushcclosure = 0x1A11770;
+		constexpr uintptr_t k_lua_pushstring = 0x1A11970;
+		constexpr uintptr_t k_lua_rawset = 0x1A11B20;
+		constexpr uintptr_t k_lua_tonumber = 0x1A121F0;
+		constexpr uintptr_t k_lua_pushboolean = 0x1A11750;
+		constexpr uintptr_t k_lua_pushlstring = 0x1A118C0;
+		constexpr uintptr_t k_lua_pushnumber = 0x1A11950;
 		constexpr uintptr_t k_api_getfield = 0xBF2F20;
 		constexpr uintptr_t k_api_getglobal = 0xBF2F30;
 
@@ -44,6 +52,13 @@ namespace mod::lua
 			{ "lua_typename", k_lua_typename, { 0x83, 0xFA, 0xFF, 0x75, 0x08, 0x48, 0x8D, 0x05, 0x0C, 0x25, 0xAA, 0x00 } },
 			{ "lua_toboolean", k_lua_toboolean, { 0x48, 0x83, 0xEC, 0x28, 0xE8, 0xD7, 0x15, 0x00, 0x00, 0x8B, 0x48, 0x08 } },
 			{ "lua_sethook", k_lua_sethook, { 0x41, 0x8B, 0xC0, 0x48, 0x85, 0xD2, 0x74, 0x04, 0x85, 0xC0, 0x75, 0x04 } },
+			{ "lua_pushcclosure", k_lua_pushcclosure, { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48 } },
+			{ "lua_pushstring", k_lua_pushstring, { 0x48, 0x85, 0xD2, 0x75, 0x0D, 0x48, 0x8B, 0x41, 0x10, 0x89, 0x50, 0x08 } },
+			{ "lua_rawset", k_lua_rawset, { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48 } },
+			{ "lua_tonumber", k_lua_tonumber, { 0x48, 0x83, 0xEC, 0x38, 0xE8, 0xA7, 0x14, 0x00, 0x00, 0x83, 0x78, 0x08 } },
+			{ "lua_pushboolean", k_lua_pushboolean, { 0x4C, 0x8B, 0x41, 0x10, 0x33, 0xC0, 0x85, 0xD2, 0x0F, 0x95, 0xC0, 0x41 } },
+			{ "lua_pushlstring", k_lua_pushlstring, { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89 } },
+			{ "lua_pushnumber", k_lua_pushnumber, { 0x48, 0x8B, 0x41, 0x10, 0xF2, 0x0F, 0x11, 0x08, 0xC7, 0x40, 0x08, 0x03 } },
 			{ "api_getfield", k_api_getfield, { 0x41, 0x8B, 0xC0, 0x48, 0x8B, 0xCA, 0x4D, 0x8B, 0xC1, 0x8B, 0xD0, 0xE9 } },
 			{ "api_getglobal", k_api_getglobal, { 0x48, 0x8B, 0xCA, 0xBA, 0xEE, 0xD8, 0xFF, 0xFF, 0xE9, 0xA3, 0xE2, 0xE1 } },
 		};
@@ -52,6 +67,7 @@ namespace mod::lua
 		constexpr size_t k_state_global = 0x20;      // lua_State::l_G
 		constexpr size_t k_global_mainthread = 0xC0; // global_State::mainthread
 		constexpr int k_multret = -1;
+		constexpr int k_globals_index = -10002;      // LUA_GLOBALSINDEX
 		constexpr int k_mask_count = 1 << 3;         // LUA_MASKCOUNT
 		constexpr int k_tnil = 0, k_tboolean = 1, k_tnumber = 3, k_tstring = 4;
 
@@ -66,6 +82,13 @@ namespace mod::lua
 		using typename_fn = const char *(*)(lua_State *, int);
 		using toboolean_fn = int (*)(lua_State *, int);
 		using sethook_fn = int (*)(lua_State *, hook_fn, int, int);
+		using pushcclosure_fn = void (*)(lua_State *, cfunction, int);
+		using pushstring_fn = void (*)(lua_State *, const char *);
+		using rawset_fn = void (*)(lua_State *, int);
+		using tonumber_fn = double (*)(lua_State *, int);
+		using pushboolean_fn = void (*)(lua_State *, int);
+		using pushlstring_fn = void (*)(lua_State *, const char *, size_t);
+		using pushnumber_fn = void (*)(lua_State *, double);
 		using api_getfield_fn = void (*)(void *self, lua_State *, int, const char *);
 		using api_getglobal_fn = void (*)(void *self, lua_State *, const char *);
 
@@ -78,6 +101,16 @@ namespace mod::lua
 		typename_fn s_typename = nullptr;
 		toboolean_fn s_toboolean = nullptr;
 		sethook_fn s_sethook = nullptr;
+		pushcclosure_fn s_pushcclosure = nullptr;
+		pushstring_fn s_pushstring = nullptr;
+		rawset_fn s_rawset = nullptr;
+		tonumber_fn s_tonumber = nullptr;
+		pushboolean_fn s_pushboolean = nullptr;
+		pushlstring_fn s_pushlstring = nullptr;
+		pushnumber_fn s_pushnumber = nullptr;
+
+		std::mutex s_functions_mutex;
+		std::vector<std::pair<std::string, cfunction>> s_functions; // set as globals before every job
 		api_getfield_fn s_original_getfield = nullptr;
 		api_getglobal_fn s_original_getglobal = nullptr;
 
@@ -140,11 +173,32 @@ namespace mod::lua
 			s_original_getglobal(self, L, name);
 		}
 
+		// mgsv_log(text): writes to the mod's log (for the mod's Lua scripts).
+		int l_log(lua_State *L)
+		{
+			log_info("[lua] {}", to_text(L, 1));
+			return 0;
+		}
+
 		// Count hook armed by post(): runs the queued work on the main Lua thread, at its next instruction.
 		void lua_hook(lua_State *L, lua_Debug *)
 		{
 			s_sethook(L, nullptr, 0, 0); // one shot
 			s_hooks.fetch_add(1, std::memory_order_relaxed);
+			// The mod's functions for its scripts (cheap; set again every time). rawset: _G has a metatable that drops
+			// new globals (and a metamethod could raise an error here, outside any protected call).
+			s_pushstring(L, "mgsv_log");
+			s_pushcclosure(L, &l_log, 0);
+			s_rawset(L, k_globals_index);
+			{
+				std::lock_guard lock(s_functions_mutex);
+				for (const auto &[name, function] : s_functions)
+				{
+					s_pushstring(L, name.c_str());
+					s_pushcclosure(L, function, 0);
+					s_rawset(L, k_globals_index);
+				}
+			}
 			for (;;)
 			{
 				std::function<void(lua_State *)> job;
@@ -168,6 +222,30 @@ namespace mod::lua
 				s_jobs_run.fetch_add(1, std::memory_order_relaxed);
 			}
 		}
+	}
+
+	bool api_ready()
+	{
+		uint8_t *b = base();
+		void *vtable = nullptr;
+		return read(b + k_api_object, &vtable, sizeof(vtable)) && vtable == b + k_api_vtable;
+	}
+
+	void keep_installed()
+	{
+		if (!s_installed || available())
+			return;
+		uint8_t *b = base();
+		void **object = reinterpret_cast<void **>(b + k_api_object);
+		void *current = nullptr;
+		if (!read(object, &current, sizeof(current)) || current != b + k_api_vtable)
+			return;
+		DWORD old_protect = 0;
+		if (!VirtualProtect(object, sizeof(void *), PAGE_READWRITE, &old_protect))
+			return;
+		InterlockedCompareExchangePointer(object, s_vtable, b + k_api_vtable);
+		VirtualProtect(object, sizeof(void *), old_protect, &old_protect);
+		log_warning("Lua: o jogo refez o objeto da API do Lua; vtable copiada de novo");
 	}
 
 	bool install()
@@ -205,6 +283,13 @@ namespace mod::lua
 		s_typename = reinterpret_cast<typename_fn>(b + k_lua_typename);
 		s_toboolean = reinterpret_cast<toboolean_fn>(b + k_lua_toboolean);
 		s_sethook = reinterpret_cast<sethook_fn>(b + k_lua_sethook);
+		s_pushcclosure = reinterpret_cast<pushcclosure_fn>(b + k_lua_pushcclosure);
+		s_pushstring = reinterpret_cast<pushstring_fn>(b + k_lua_pushstring);
+		s_rawset = reinterpret_cast<rawset_fn>(b + k_lua_rawset);
+		s_tonumber = reinterpret_cast<tonumber_fn>(b + k_lua_tonumber);
+		s_pushboolean = reinterpret_cast<pushboolean_fn>(b + k_lua_pushboolean);
+		s_pushlstring = reinterpret_cast<pushlstring_fn>(b + k_lua_pushlstring);
+		s_pushnumber = reinterpret_cast<pushnumber_fn>(b + k_lua_pushnumber);
 		s_original_getfield = reinterpret_cast<api_getfield_fn>(s_vtable[k_slot_getfield]);
 		s_original_getglobal = reinterpret_cast<api_getglobal_fn>(s_vtable[k_slot_getglobal]);
 		s_vtable[k_slot_getfield] = reinterpret_cast<void *>(&hook_api_getfield);
@@ -244,6 +329,47 @@ namespace mod::lua
 		// lua_sethook may be called from another thread (the standalone Lua interpreter does it from a signal handler):
 		// the main thread runs lua_hook at its next instruction.
 		s_sethook(main, &lua_hook, k_mask_count, 1);
+	}
+
+	void register_function(const char *name, cfunction function)
+	{
+		std::lock_guard lock(s_functions_mutex);
+		s_functions.emplace_back(name, function);
+	}
+
+	std::string arg_string(lua_State *L, int index)
+	{
+		const int type = s_type(L, index);
+		if (type != k_tstring && type != k_tnumber)
+			return {};
+		size_t length = 0;
+		const char *text = s_tolstring(L, index, &length);
+		return text != nullptr ? std::string(text, length) : std::string();
+	}
+
+	double arg_number(lua_State *L, int index)
+	{
+		return s_tonumber(L, index);
+	}
+
+	bool arg_bool(lua_State *L, int index)
+	{
+		return s_toboolean(L, index) != 0;
+	}
+
+	void push_string(lua_State *L, const std::string &text)
+	{
+		s_pushlstring(L, text.data(), text.size());
+	}
+
+	void push_number(lua_State *L, double value)
+	{
+		s_pushnumber(L, value);
+	}
+
+	void push_bool(lua_State *L, bool value)
+	{
+		s_pushboolean(L, value ? 1 : 0);
 	}
 
 	int gettop(lua_State *L)

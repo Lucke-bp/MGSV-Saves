@@ -4,6 +4,6 @@
 
 namespace mod
 {
-	// Called once, on the game's main thread, at the first DirectInput8Create (before the game creates its device).
+	// Runs once, on a thread of its own started when the DLL loads (only in mgsvtpp.exe); waits for the exe's startup.
 	void start();
 }

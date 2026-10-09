@@ -51,6 +51,17 @@ namespace mod
 	// True if the foreground window belongs to the game (hotkeys only fire then).
 	bool game_has_focus();
 
+	// While one exists on a thread, its access violations (expected by guarded reads of memory the game may free) are
+	// not logged by the exception logger.
+	struct quiet_faults
+	{
+		quiet_faults();
+		~quiet_faults();
+		quiet_faults(const quiet_faults &) = delete;
+		quiet_faults &operator=(const quiet_faults &) = delete;
+	};
+	bool faults_are_quiet();
+
 	// Return addresses of the callers as " module+offset" (skip: frames above the caller of call_stack to leave out).
 	std::string call_stack(unsigned skip = 0, unsigned max_frames = 24);
 	// "module+offset" of an address.

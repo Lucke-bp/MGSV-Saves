@@ -1,4 +1,5 @@
 #include "common.hpp"
+#include "mod.hpp"
 
 #include <atomic>
 
@@ -13,6 +14,8 @@ namespace
 		const DWORD code = info->ExceptionRecord->ExceptionCode;
 		// Debug output, thread naming and C++ exceptions are routine.
 		if (code == DBG_PRINTEXCEPTION_C || code == 0x4001000A || code == 0x406D1388 || code == 0xE06D7363)
+			return EXCEPTION_CONTINUE_SEARCH;
+		if (code == EXCEPTION_ACCESS_VIOLATION && mod::faults_are_quiet())
 			return EXCEPTION_CONTINUE_SEARCH;
 		if (s_logged_exceptions.fetch_add(1) < k_max_logged_exceptions)
 		{
@@ -36,8 +39,11 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved)
 		if (mod::is_target_process())
 		{
 			mod::log_init();
-			mod::log_info("{} {} carregado como dinput8.dll (pid {})", MOD_NAME, MOD_VERSION, GetCurrentProcessId());
+			mod::log_info("{} {} carregado como msacm32.dll (pid {})", MOD_NAME, MOD_VERSION, GetCurrentProcessId());
 			AddVectoredExceptionHandler(1, exception_logger);
+			// The thread starts once the loader is done with the process's DLLs.
+			if (HANDLE thread = CreateThread(nullptr, 0, [](void *) -> DWORD { mod::start(); return 0; }, nullptr, 0, nullptr))
+				CloseHandle(thread);
 		}
 		break;
 	case DLL_PROCESS_DETACH:

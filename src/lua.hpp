@@ -15,7 +15,12 @@ namespace mod::lua
 {
 	struct lua_State;
 
+	// The exe set up the Lua API object (its vtable pointer is written by the exe's own startup code, after the DLLs
+	// are loaded): install() can run.
+	bool api_ready();
 	bool install();
+	// Until the main state is found: puts our vtable back if the exe set its own again.
+	void keep_installed();
 	// The main Lua state was found: work can be posted.
 	bool available();
 
@@ -25,7 +30,17 @@ namespace mod::lua
 	// Runs a C++ callback on the game's main Lua thread (the stack is restored afterwards).
 	void post(std::function<void(lua_State *L)> work);
 
-	// Helpers for callbacks (only valid on the Lua thread).
+	// C functions for the mod's scripts: set as globals (with rawset) before every job runs.
+	using cfunction = int (*)(lua_State *);
+	void register_function(const char *name, cfunction function);
+
+	// Helpers for callbacks and C functions (only valid on the Lua thread).
+	std::string arg_string(lua_State *L, int index);
+	double arg_number(lua_State *L, int index);
+	bool arg_bool(lua_State *L, int index);
+	void push_string(lua_State *L, const std::string &text);
+	void push_number(lua_State *L, double value);
+	void push_bool(lua_State *L, bool value);
 	int gettop(lua_State *L);
 	void settop(lua_State *L, int index);
 	// Loads and runs a chunk; returns the error message, or an empty string on success. Results stay on the stack.

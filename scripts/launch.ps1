@@ -24,5 +24,5 @@ Write-Host "Processo visto: $seen | rodando agora: $running"
 if ((Test-Path $log) -and (Get-Item $log).LastWriteTime -ge $started) {
     Get-Content $log
 } else {
-    Write-Warning 'O log do mod nao foi escrito nesta execucao (a dinput8.dll nao carregou?).'
+    Write-Warning 'O log do mod nao foi escrito nesta execucao (a msacm32.dll nao carregou?).'
 }

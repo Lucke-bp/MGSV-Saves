@@ -72,6 +72,26 @@ namespace mod
 		return target;
 	}
 
+	namespace
+	{
+		thread_local int t_quiet_faults = 0;
+	}
+
+	quiet_faults::quiet_faults()
+	{
+		++t_quiet_faults;
+	}
+
+	quiet_faults::~quiet_faults()
+	{
+		--t_quiet_faults;
+	}
+
+	bool faults_are_quiet()
+	{
+		return t_quiet_faults > 0;
+	}
+
 	bool game_has_focus()
 	{
 		DWORD pid = 0;
