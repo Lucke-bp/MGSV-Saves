@@ -1,5 +1,5 @@
-MGSV Saves {VERSION}
-Save slots for METAL GEAR SOLID V: THE PHANTOM PAIN (PC, Steam), in the game's own pause menu.
+MGSV Saves | Save / Load in the pause menu
+Version {VERSION}. Save slots for METAL GEAR SOLID V: THE PHANTOM PAIN (PC, Steam), in the game's own pause menu.
 (Português mais abaixo.)
 
 
@@ -80,8 +80,8 @@ MIT (LICENSE.txt).
 ============================================================================================
 PORTUGUÊS
 
-MGSV Saves {VERSION} - slots de save para METAL GEAR SOLID V: THE PHANTOM PAIN (PC, Steam),
-no próprio menu de pausa do jogo.
+MGSV Saves | Save / Load in the pause menu - versão {VERSION}.
+Slots de save para METAL GEAR SOLID V: THE PHANTOM PAIN (PC, Steam), no próprio menu de pausa do jogo.
 
 RECURSOS
 - SALVAR / CARREGAR no menu de pausa, no lugar do CHECKPOINT (que vai para dentro dele):
