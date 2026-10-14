@@ -65,12 +65,16 @@ namespace mod
 			s_main_loaded = true;
 		}
 
-		// Remote control for tests: <mod_dir>\command.txt, one command per line, deleted after reading.
+		// Remote control for tests: <mod_dir>\command.txt, one command per line, deleted after reading. Only on a development
+		// machine (<mod_dir>\.dev exists: scripts/deploy.ps1 makes it; the release package has none).
 		//   lua <code>          runs Lua on the game's main Lua thread (e.g. "lua return vars.missionCode")
 		//   luafile <file.lua>  runs <mod_dir>\<file.lua>
 		//   reload              runs mgsv_saves.lua again
 		void poll_command_file()
 		{
+			static const bool enabled = std::filesystem::exists(mod_dir() / L".dev");
+			if (!enabled)
+				return;
 			const std::filesystem::path path = mod_dir() / L"command.txt";
 			std::error_code ec;
 			if (!std::filesystem::exists(path, ec))

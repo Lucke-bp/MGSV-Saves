@@ -62,6 +62,18 @@ namespace mod::lang
 		std::vector<pool> s_pools;
 		std::map<uint32_t, std::string> s_persistent;
 		std::atomic<bool> s_rescan = true;
+
+		// Guarded texts: in a page of their own with PAGE_GUARD, so the game's first read of one raises an exception
+		// (handed to on_guard_access by the exception logger): that is how a confirmation of ours is seen on screen.
+		// The mod never reads that page, it only writes it (guard off, write, guard on).
+		constexpr size_t k_guard_page = 4096;
+		constexpr size_t k_guard_slot = 256;
+		constexpr size_t k_guard_slots = k_guard_page / k_guard_slot;
+		uint8_t *s_guard = nullptr;
+		std::atomic<uint32_t> s_guard_keys[k_guard_slots] = {}; // slot -> key (read by the exception handler)
+		std::map<uint32_t, std::string> s_guard_written;          // key -> bytes in its slot
+		std::map<uint32_t, bool> s_guarded;                       // keys whose persistent text is guarded
+		std::atomic<uint32_t> s_guard_hit = 0;
 		std::atomic<bool> s_index_wanted = false; // a node was not found: look for the index again
 
 		// Plain functions so SEH can guard the accesses (the blocks are loaded and freed by the game).
@@ -371,6 +383,86 @@ namespace mod::lang
 			r.active = -1;
 		}
 
+		void protect_guard(bool guarded)
+		{
+			DWORD old = 0;
+			VirtualProtect(s_guard, k_guard_page, guarded ? PAGE_READWRITE | PAGE_GUARD : PAGE_READWRITE, &old);
+		}
+
+		// The key's slot in the guarded page (the page is made on first use), or null if it is full.
+		uint8_t *guard_slot(uint32_t key)
+		{
+			if (s_guard == nullptr)
+			{
+				s_guard = static_cast<uint8_t *>(VirtualAlloc(nullptr, k_guard_page, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+				if (s_guard == nullptr)
+					return nullptr;
+			}
+			size_t free_slot = k_guard_slots;
+			for (size_t i = 0; i < k_guard_slots; ++i)
+			{
+				if (s_guard_keys[i] == key)
+					return s_guard + i * k_guard_slot;
+				if (s_guard_keys[i] == 0 && free_slot == k_guard_slots)
+					free_slot = i;
+			}
+			if (free_slot == k_guard_slots)
+				return nullptr;
+			s_guard_keys[free_slot] = key;
+			return s_guard + free_slot * k_guard_slot;
+		}
+
+		bool in_guard(const void *p)
+		{
+			return s_guard != nullptr && p >= s_guard && p < s_guard + k_guard_page;
+		}
+
+		// Caller holds s_mutex. A guarded text always goes to its slot in the guarded page.
+		bool apply_guarded(const block &b, uint32_t key, const std::string &text, uint8_t *in_place, const std::string &original)
+		{
+			write_if_different(in_place, fitted(text, original.size())); // what shows until the index is found
+			relocation &r = s_relocations[{ b.header, key }];
+			r.original_value = in_place - 2;
+			uint8_t *at = node_of(b, key, r);
+			uint8_t *slot = guard_slot(key);
+			if (at == nullptr || slot == nullptr)
+				return true;
+			r.node = at;
+			std::string bytes(2, '\0');
+			read(in_place - 2, bytes.data(), 2);
+			bytes += fitted(text, k_guard_slot - 3).c_str();
+			bytes.push_back('\0');
+			if (s_guard_written[key] != bytes)
+			{
+				protect_guard(false);
+				write(slot, bytes.data(), bytes.size());
+				protect_guard(true);
+				s_guard_written[key] = bytes;
+			}
+			node n;
+			if (!read_node(at, n) || n.value != slot)
+				write_pointer(at + k_node_value, slot);
+			r.slots[0] = slot;
+			r.slots[1] = nullptr;
+			r.active = 0;
+			return true;
+		}
+
+		// Caller holds s_mutex. A key leaves the guarded page: its nodes point at the game's text again.
+		void unguard(uint32_t key)
+		{
+			for (auto &[id, r] : s_relocations)
+				if (id.second == key && in_guard(r.slots[0]))
+				{
+					unrelocate(key, r);
+					r.slots[0] = nullptr;
+				}
+			for (std::atomic<uint32_t> &slot_key : s_guard_keys)
+				if (slot_key == key)
+					slot_key = 0;
+			s_guard_written.erase(key);
+		}
+
 		// Caller holds s_mutex. The text goes over the game's, cut to its length; a longer one also goes to a copy of
 		// ours that the key's index node points at (until the index is found, the cut text shows).
 		bool apply(const block &b, uint32_t key, const std::string &text)
@@ -379,6 +471,8 @@ namespace mod::lang
 			if (in_place == nullptr)
 				return false;
 			const std::string original = original_at(in_place, key);
+			if (s_guarded.contains(key))
+				return apply_guarded(b, key, text, in_place, original);
 			write_if_different(in_place, fitted(text, original.size()));
 			const auto existing = s_relocations.find({ b.header, key });
 			if (text.size() <= original.size())
@@ -519,10 +613,14 @@ namespace mod::lang
 		return found;
 	}
 
-	void set_persistent(uint32_t key, const std::string &text)
+	void set_persistent(uint32_t key, const std::string &text, bool guarded)
 	{
 		const quiet_faults quiet;
 		std::lock_guard lock(s_mutex);
+		if (guarded)
+			s_guarded[key] = true;
+		else if (s_guarded.erase(key) > 0)
+			unguard(key);
 		s_persistent[key] = text;
 		if (!replace_all(key, text))
 			s_rescan = true;
@@ -533,6 +631,8 @@ namespace mod::lang
 		const quiet_faults quiet;
 		std::lock_guard lock(s_mutex);
 		s_persistent.erase(key);
+		if (s_guarded.erase(key) > 0)
+			unguard(key);
 		for (const block &b : s_blocks)
 		{
 			uint8_t *p = find(b, key);
@@ -559,5 +659,26 @@ namespace mod::lang
 				return original_at(p, key);
 		s_rescan = true; // maybe in a block loaded since the last search
 		return {};
+	}
+
+	bool on_guard_access(const void *address)
+	{
+		if (!in_guard(address))
+			return false;
+		const size_t slot = (static_cast<const uint8_t *>(address) - s_guard) / k_guard_slot;
+		s_guard_hit = s_guard_keys[slot].load();
+		return true;
+	}
+
+	uint32_t take_guard_hit()
+	{
+		return s_guard_hit.exchange(0);
+	}
+
+	void arm_guard()
+	{
+		std::lock_guard lock(s_mutex);
+		if (s_guard != nullptr && !s_guarded.empty())
+			protect_guard(true);
 	}
 }

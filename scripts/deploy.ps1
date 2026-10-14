@@ -39,6 +39,8 @@ if (Test-Path $oldMarker) { Remove-Item $oldMarker }
 
 Copy-Item $dll $target -Force
 (Get-FileHash $target -Algorithm SHA256).Hash | Set-Content $marker -Encoding ascii
+# This is a development machine: the mod's command.txt console is on here (src/mod.cpp)
+New-Item -ItemType File -Force (Join-Path $modDir '.dev') | Out-Null
 # The mod's Lua scripts
 $scripts = Get-ChildItem (Join-Path $Root 'lua') -Filter *.lua -ErrorAction SilentlyContinue
 foreach ($s in $scripts) { Copy-Item $s.FullName $modDir -Force }

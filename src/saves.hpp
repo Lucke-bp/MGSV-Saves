@@ -13,6 +13,14 @@ namespace mod::saves
 	// Copies the game's own save files (TPP_GAME_DATA*, PERSONAL_DATA*) to <mod>\backups\auto\<date time>; keeps the
 	// newest 30 copies. Returns the copy's folder name, empty on failure.
 	std::string backup();
-	// Moves a slot's files (<name>0/1, names MGSV_SAVES_* only) from the save folder to <mod>\backups\apagados.
-	bool remove_slot(const std::string &name);
+	// Copies a slot's files (names MGSV_SAVES_* only: the two local ones and the Steam Cloud one) to
+	// <mod>\backups\apagados (newest 90 files kept), before the game deletes them (TppScriptVars.DeleteFile). False if a
+	// copy failed.
+	bool backup_slot(const std::string &name);
+	// The slots whose files exist (local copies or the Steam Cloud one): "id|dd/mm/yyyy hh:mm" lines, newest write.
+	// For slots missing from slots.txt (deleted, or a new PC / reinstalled game with the files in the cloud).
+	std::string list_slots();
+	// A slot just written has the size of the game's own save (one written right after a read does not, and the game
+	// cannot read it back).
+	bool slot_readable(const std::string &name);
 }

@@ -30,7 +30,7 @@ namespace mod::script_api
 			const std::string text = lua::arg_string(L, 2);
 			if (lua::arg_bool(L, 3))
 			{
-				lang::set_persistent(key, text);
+				lang::set_persistent(key, text, lua::arg_bool(L, 4));
 				lua::push_bool(L, true);
 			}
 			else
@@ -121,15 +121,33 @@ namespace mod::script_api
 			return 0;
 		}
 
+		int l_watch_pad(lua::lua_State *L)
+		{
+			keys::watch_pad(lua::arg_bool(L, 1));
+			return 0;
+		}
+
 		int l_backup_saves(lua::lua_State *L)
 		{
 			lua::push_string(L, saves::backup());
 			return 1;
 		}
 
-		int l_remove_slot(lua::lua_State *L)
+		int l_list_slots(lua::lua_State *L)
 		{
-			lua::push_bool(L, saves::remove_slot(lua::arg_string(L, 1)));
+			lua::push_string(L, saves::list_slots());
+			return 1;
+		}
+
+		int l_slot_readable(lua::lua_State *L)
+		{
+			lua::push_bool(L, saves::slot_readable(lua::arg_string(L, 1)));
+			return 1;
+		}
+
+		int l_backup_slot(lua::lua_State *L)
+		{
+			lua::push_bool(L, saves::backup_slot(lua::arg_string(L, 1)));
 			return 1;
 		}
 	}
@@ -144,7 +162,10 @@ namespace mod::script_api
 		lua::register_function("mgsv_now", &l_now);
 		lua::register_function("mgsv_press_key", &l_press_key);
 		lua::register_function("mgsv_watch_keys", &l_watch_keys);
+		lua::register_function("mgsv_watch_pad", &l_watch_pad);
 		lua::register_function("mgsv_backup_saves", &l_backup_saves);
-		lua::register_function("mgsv_remove_slot", &l_remove_slot);
+		lua::register_function("mgsv_backup_slot", &l_backup_slot);
+		lua::register_function("mgsv_list_slots", &l_list_slots);
+		lua::register_function("mgsv_slot_readable", &l_slot_readable);
 	}
 }

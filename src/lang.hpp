@@ -16,10 +16,19 @@ namespace mod::lang
 	// Replaces a text now, in the blocks found so far. False if the key is not in any of them yet (a new scan is
 	// then requested).
 	bool set(uint32_t key, const std::string &text);
-	// Keeps a text replaced, also in blocks loaded later.
-	void set_persistent(uint32_t key, const std::string &text);
+	// Keeps a text replaced, also in blocks loaded later. guarded: the text goes to a page with PAGE_GUARD, so the
+	// game reading it is seen (on_guard_access) - used for the confirmations the mod answers by itself.
+	void set_persistent(uint32_t key, const std::string &text, bool guarded = false);
 	// Puts the game's own text back (and drops a persistent replacement).
 	void restore(uint32_t key);
 	// The game's own text of a key (empty if not found yet).
 	std::string original(uint32_t key);
+
+	// From the exception handler, on a guard page violation (no locks, no allocations): true if the address is in the
+	// guarded texts' page (the game is reading one; the guard is off until arm_guard).
+	bool on_guard_access(const void *address);
+	// The key of the guarded text the game read last (0: none since the last call).
+	uint32_t take_guard_hit();
+	// Turns the guard on again (it goes off at each hit).
+	void arm_guard();
 }

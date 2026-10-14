@@ -1,4 +1,5 @@
 #include "common.hpp"
+#include "lang.hpp"
 #include "mod.hpp"
 
 #include <atomic>
@@ -17,6 +18,11 @@ namespace
 			return EXCEPTION_CONTINUE_SEARCH;
 		if (code == EXCEPTION_ACCESS_VIOLATION && mod::faults_are_quiet())
 			return EXCEPTION_CONTINUE_SEARCH;
+		// The game reading one of our guarded texts (a confirmation of ours on screen): noted, and the read goes on (the
+		// guard is gone after this exception).
+		if (code == STATUS_GUARD_PAGE_VIOLATION && info->ExceptionRecord->NumberParameters >= 2 &&
+			mod::lang::on_guard_access(reinterpret_cast<const void *>(info->ExceptionRecord->ExceptionInformation[1])))
+			return EXCEPTION_CONTINUE_EXECUTION;
 		if (s_logged_exceptions.fetch_add(1) < k_max_logged_exceptions)
 		{
 			std::string extra;

@@ -31,6 +31,10 @@ this.QUICK_SAVE_KEY = 0x74 -- F5
 this.QUICK_LOAD_KEY = 0x78 -- F9
 local MAX_SLOTS = 50
 local CONFIG_FILE = "mgsv_saves.ini"
+-- Settings written at the end of an older mgsv_saves.ini when missing (name, lines).
+local CONFIG_ADDITIONS = {
+  { "pad_quick_save", "; Hold START on a controller for a second: quick save (true/false) / Segurar START no controle: save rapido\npad_quick_save=true\n" },
+}
 local DEFAULT_CONFIG = [[
 ; MGSV Saves
 ; Number of save slots (1 to 50) / Numero de slots
@@ -46,6 +50,8 @@ local SAVING = TppDefine.SAVE_SLOT.SAVING
 local FILE_PREFIX = "MGSV_SAVES_"
 local SLOTS_FILE = "slots.txt"
 local QUICK = "Q"
+local AUTO = "A" -- copy of the game's own last save (its autosave)
+local PAD_START_HOLD = 0x100 -- src/keys.hpp
 local QUESTION_POPUP = 5001 -- the game's MGO invitation popup (two buttons), with its text replaced
 local VK_ESCAPE = 0x1B
 
@@ -82,8 +88,11 @@ local ENGLISH = {
   loadItem = "LOAD GAME",
   loadInfo = "Loads a game saved to a slot (MGSV Saves).",
   loadConfirm = "Choose the slot to load?",
-  slotTitle = "SLOT %d", quickTitle = "QUICK SAVE",
-  slotWord = "slot %d", quickWord = "quick save",
+  slotTitle = "SLOT %d", quickTitle = "QUICK SAVE", autoTitle = "AUTOSAVE",
+  slotWord = "slot %d", quickWord = "quick save", autoWord = "autosave",
+  quickItem = "QUICK SAVE",
+  quickInfo = "Saves to the quick save slot.",
+  quickConfirm = "Quick save now?",
   entryName = "%s: %s",
   emptyName = "%s: EMPTY",
   saveEmptyInfo = "Save the game to this empty slot.",
@@ -113,7 +122,7 @@ local ENGLISH = {
   deleteFailed = "MGSV Saves: could not delete (%s)",
   openMenu = "MGSV Saves: open the pause menu to choose the slot",
   listFailed = "MGSV Saves: the slot list could not be opened",
-  mission = "MISSION %d", prologue = "PROLOGUE", episode = "Episode %d: %s",
+  mission = "MISSION %d", prologue = "PROLOGUE", episode = "Episode %d: %s", unknown = "Unknown mission",
   afgh = "AFGHANISTAN", mafr = "AFRICA", mtbs = "MOTHER BASE", acc = "ACC",
 }
 local function log(text)
@@ -187,16 +196,30 @@ end
 -- the mission's name when it was saved, like the game shows it, "Episódio 4: C2W")
 
 local function slot_id(text)
-  return text == QUICK and QUICK or tonumber(text)
+  if text == QUICK or text == AUTO then
+    return text
+  end
+  return tonumber(text)
 end
 
 local function read_slots()
   local slots = {}
   for line in string.gmatch(mgsv_read_file(SLOTS_FILE), "[^\r\n]+") do
-    local id, missionCode, date, label = string.match(line, "^([%dQ]+)|(%d+)|([^|]*)|?([^|]*)")
+    local id, missionCode, date, label = string.match(line, "^([%dQA]+)|(%d+)|([^|]*)|?([^|]*)")
     id = id and slot_id(id)
     if id then
       slots[id] = { missionCode = tonumber(missionCode), date = date, label = label ~= "" and label or nil }
+    end
+  end
+  -- Slots whose files exist but are not listed (slots.txt lost, or a new PC / reinstalled game with the files in the
+  -- Steam Cloud): listed with an unknown mission (0) and the files' date.
+  if mgsv_list_slots then
+    for line in string.gmatch(mgsv_list_slots(), "[^\r\n]+") do
+      local id, date = string.match(line, "^([%dQA]+)|(.*)$")
+      id = id and slot_id(id)
+      if id and not slots[id] then
+        slots[id] = { missionCode = 0, date = date }
+      end
     end
   end
   return slots
@@ -206,13 +229,16 @@ end
 local function write_slots(slots)
   local ids = {}
   for id in pairs(slots) do
-    if id ~= QUICK then
+    if type(id) == "number" then
       ids[#ids + 1] = id
     end
   end
   table.sort(ids)
   if slots[QUICK] then
     table.insert(ids, 1, QUICK)
+  end
+  if slots[AUTO] then
+    table.insert(ids, 1, AUTO)
   end
   local lines = {}
   for _, id in ipairs(ids) do
@@ -224,11 +250,21 @@ local function write_slots(slots)
 end
 
 local function slot_title(id)
-  return id == QUICK and texts().quickTitle or string.format(texts().slotTitle, id)
+  if id == QUICK then
+    return texts().quickTitle
+  elseif id == AUTO then
+    return texts().autoTitle
+  end
+  return string.format(texts().slotTitle, id)
 end
 
 local function slot_word(id)
-  return id == QUICK and texts().quickWord or string.format(texts().slotWord, id)
+  if id == QUICK then
+    return texts().quickWord
+  elseif id == AUTO then
+    return texts().autoWord
+  end
+  return string.format(texts().slotWord, id)
 end
 
 local FREE_ROAM = { [30010] = "afgh", [30020] = "mafr", [30050] = "mtbs", [30150] = "mtbs", [30250] = "mtbs",
@@ -252,6 +288,9 @@ end
 -- "Episódio 4: C2W" (the game's own texts), "AFEGANISTÃO", "CCA"; "MISSÃO 4" when the names are not loaded. The
 -- second result is true when the label is final (not that fallback).
 local function mission_label(missionCode)
+  if missionCode == 0 then
+    return texts().unknown, false -- a slot found without its entry in slots.txt
+  end
   local free = FREE_ROAM[missionCode]
   if free then
     local name = mgsv_get_text(PLACE_TEXT[free])
@@ -457,8 +496,9 @@ local function page_entries(kind)
   end
   local list = {}
   if kind == "hub" then -- what SAVE / LOAD opens
-    -- Items of the game's page moved here (see with_our_items): the checkpoint, first, is an entry of ours (its
+    -- Quick save first. Items of the game's page moved here (see with_our_items): the checkpoint is an entry of ours (its
     -- message is one of ITEMS'), with the game's own texts; any other game item comes last, as it is.
+    list[#list + 1] = { kind = "quick" }
     local natives = {}
     for _, item in ipairs(this.movedItems or {}) do
       if item == GamePauseMenu.RESTART_FROM_CHECK_POINT then
@@ -481,6 +521,9 @@ local function page_entries(kind)
     end
   else
     local entryKind = kind == "delete" and "delete" or "load"
+    if slots[AUTO] and kind == "load" then -- the game's own last save: loaded, never deleted (it comes back)
+      list[#list + 1] = { kind = entryKind, id = AUTO, slot = slots[AUTO] }
+    end
     if slots[QUICK] then
       list[#list + 1] = { kind = entryKind, id = QUICK, slot = slots[QUICK] }
     end
@@ -509,10 +552,13 @@ local function paginate(list, page)
   return entries, page
 end
 
+-- Name, description and confirmation (every pause item has one: the game always asks).
 local function entry_texts(entry)
   local t = texts()
   if entry.kind == "more" then
     return string.format(t.moreName, entry.page, entry.pages), t.moreInfo, t.moreConfirm
+  elseif entry.kind == "quick" then
+    return t.quickItem, t.quickInfo, t.quickConfirm
   elseif entry.kind == "checkpoint" then -- the game's own texts (ITEMS[1] is "restart from checkpoint")
     local name, info, confirm = mgsv_get_text(ITEMS[1].name), mgsv_get_text(ITEMS[1].info), mgsv_get_text(ITEMS[1].confirm)
     return name ~= "" and name or "CHECKPOINT", info, confirm ~= "" and confirm or "CHECKPOINT?"
@@ -583,6 +629,7 @@ local function open_page(kind, page)
     end
   end
   local menu = {}
+  local quickKey
   for i, entry in ipairs(entries) do
     if entry.kind == "native" then -- an item of the game (always after ours: our items keep their positions)
       menu[i] = entry.item
@@ -591,11 +638,15 @@ local function open_page(kind, page)
       local name, info, confirm = entry_texts(entry)
       mgsv_set_text(item.name, name, true)
       mgsv_set_text(item.info, info, true)
-      mgsv_set_text(item.confirm, confirm, true)
+      -- The quick save's confirmation is guarded: the game showing it runs OnConfirmation (no question, like F5)
+      mgsv_set_text(item.confirm, confirm, true, entry.kind == "quick")
+      if entry.kind == "quick" then
+        quickKey = item.confirm
+      end
       menu[i] = GamePauseMenu[item.id]
     end
   end
-  this.page = { kind = kind, page = page, entries = entries, state = "opening", wait = 0, since = this.gameTime }
+  this.page = { kind = kind, page = page, entries = entries, state = "opening", wait = 0, since = this.gameTime, quickKey = quickKey }
   this.originalRegisterPauseMenuPage(menu)
   if not mgsv_press_key or not mgsv_press_key(VK_ESCAPE, 300) then
     this.page.hinted = true
@@ -632,10 +683,14 @@ local function track_page()
     -- Closed without a choice (a choice's message comes while the time still stands still, before this tick): back,
     -- to the game's pause menu.
     close_page()
-    if mgsv_press_key then
-      mgsv_press_key(VK_ESCAPE, 100)
+    if this.padSave then
+      log("lista de slots fechada para o save rapido")
+    else
+      if mgsv_press_key then
+        mgsv_press_key(VK_ESCAPE, 100)
+      end
+      log("lista de slots fechada sem escolha: menu de pausa de volta")
     end
-    log("lista de slots fechada sem escolha: menu de pausa de volta")
   end
 end
 
@@ -686,11 +741,17 @@ end
 if not this.originalDoSave then
   this.originalDoSave = TppSave.DoSave
 end
+-- Any other save of the game's file is its own (autosave): copied as the automatic save (copy_autosave, below).
 TppSave.DoSave = function(saveParams, force)
   local result = this.originalDoSave(saveParams, force)
-  local flow = this.flow
-  if flow and flow.state == "checkpoint" and type(saveParams) == "table" and saveParams.fileName == TppDefine.GAME_SAVE_FILE_NAME then
-    flow.state = "checkpointSaving"
+  if type(saveParams) == "table" and saveParams.fileName == TppDefine.GAME_SAVE_FILE_NAME then
+    local flow = this.flow
+    if flow and flow.state == "checkpoint" then
+      flow.state = "checkpointSaving"
+    elseif not flow and not (this.autoSkipUntil and os.clock() < this.autoSkipUntil) then
+      -- (the game saves again during and right after the mod's own saves and loads: not autosaves)
+      this.autoPending = os.clock()
+    end
   end
   return result
 end
@@ -720,7 +781,42 @@ local function ask(text, onYes)
   return true
 end
 
+-- Only where the game itself would save at the player's position (TppCheckPoint's "safety" checks): in a mission's
+-- play (no cutscene that cannot be played, no game over, no mission clear, not its start), the player in a state the
+-- game saves (not in the air, in a vehicle...), no vehicle being fultoned. The ACC has none of these.
+local function playing()
+  if in_helicopter_space() then
+    return true
+  end
+  local ok, state = pcall(TppMission.CheckMissionState)
+  return ok and state == true
+end
+
+local function can_save_here()
+  if in_helicopter_space() then
+    return true
+  end
+  if not playing() then
+    return false, "estado da missao"
+  end
+  local ok, can = pcall(function() return not Player.CanSaveAsCheckPoint or Player.CanSaveAsCheckPoint() end)
+  if not ok or not can then
+    return false, "posicao do jogador"
+  end
+  ok, can = pcall(function() return not (Gimmick.IsVehicleFultonUpdating and Gimmick.IsVehicleFultonUpdating()) end)
+  if not ok or not can then
+    return false, "fulton de veiculo"
+  end
+  return true
+end
+
 local function start_save(id)
+  local ok, reason = can_save_here()
+  if not ok then
+    announce(texts().saveFailed)
+    log("save recusado: " .. reason)
+    return
+  end
   this.flow = { action = "save", id = id, state = "checkpoint", wait = 0 }
   if in_helicopter_space() then
     -- No checkpoints in the ACC: the save the game makes there itself (mission start of the helicopter space), now.
@@ -740,7 +836,7 @@ local function start_load(id)
     announce(texts().online)
     return
   end
-  if busy() then
+  if busy() or not playing() then
     announce(string.format(texts().loadFailed, slot_word(id)))
     return
   end
@@ -750,20 +846,26 @@ local function start_load(id)
     return
   end
   announce(string.format(texts().loading, slot_word(id)))
+  -- The game saves right after a load: that is not an autosave of the player's game (the automatic save stays).
+  this.autoPending = nil
+  this.autoSkipUntil = os.clock() + 30
   TppScriptVars.ReadSlotFromFile(SAVING, FILE_PREFIX .. tostring(id))
   this.flow = { action = "load", id = id, slot = slot, state = "reading", wait = 0 }
   log("carregando " .. slot_word(id) .. " (missao " .. slot.missionCode .. "); backup " .. backup)
 end
 
+-- A copy of the slot's files (local and Steam Cloud) goes to backups\apagados, then the game deletes them itself (its
+-- delete reaches its Steam Cloud copy too, which a file deleted by hand would not).
 local function delete_slot(id)
   local slots = read_slots()
   if not slots[id] then
     return
   end
-  if not mgsv_remove_slot(FILE_PREFIX .. tostring(id)) then
+  if busy() or not mgsv_backup_slot(FILE_PREFIX .. tostring(id)) then
     announce(string.format(texts().deleteFailed, slot_word(id)))
     return
   end
+  TppScriptVars.DeleteFile(FILE_PREFIX .. tostring(id))
   slots[id] = nil
   write_slots(slots)
   announce(string.format(texts().deleted, slot_word(id)))
@@ -785,7 +887,7 @@ local function load_other_mission(slot)
   call("TppWeather.OnEndMissionPrepareFunction", function() TppWeather.OnEndMissionPrepareFunction() end)
   call("TppMission.SafeStopSettingOnMissionReload", function() TppMission.SafeStopSettingOnMissionReload() end)
   TppSave.VarRestoreOnContinueFromCheckPoint()
-  if vars.missionCode ~= slot.missionCode then
+  if slot.missionCode ~= 0 and vars.missionCode ~= slot.missionCode then
     log(string.format("missao restaurada %s, esperada %s", tostring(vars.missionCode), tostring(slot.missionCode)))
     vars.missionCode = slot.missionCode
   end
@@ -849,13 +951,26 @@ local function step()
     end
     this.flow = nil
     local result = TppScriptVars.GetLastResult()
+    if result == TppScriptVars.RESULT_OK and mgsv_slot_readable and not mgsv_slot_readable(FILE_PREFIX .. tostring(flow.id)) then
+      log("falha ao gravar " .. slot_word(flow.id) .. ": arquivo com tamanho diferente do save do jogo")
+      result = "tamanho"
+      if flow.action == "auto" then
+        local slots = read_slots()
+        slots[AUTO] = nil
+        write_slots(slots)
+      end
+    end
     if result == TppScriptVars.RESULT_OK then
       local slots = read_slots()
       slots[flow.id] = { missionCode = vars.missionCode, date = mgsv_now(), label = mission_label(vars.missionCode) }
       write_slots(slots)
-      announce(string.format(texts().saved, slot_word(flow.id)))
+      if flow.action ~= "auto" then
+        announce(string.format(texts().saved, slot_word(flow.id)))
+        this.autoPending = nil
+        this.autoSkipUntil = os.clock() + 5
+      end
       log(slot_word(flow.id) .. " salvo (missao " .. tostring(vars.missionCode) .. ")")
-    else
+    elseif flow.action ~= "auto" then
       announce(texts().saveFailed)
       log("falha ao gravar " .. slot_word(flow.id) .. ": resultado " .. tostring(result))
     end
@@ -948,6 +1063,8 @@ function this.OnPageItem(index, page)
   log(string.format("lista de slots: escolha %d (%s %s)", index, entry.kind, tostring(entry.id or entry.target or entry.page or "")))
   if entry.kind == "save" then
     start_save(entry.id)
+  elseif entry.kind == "quick" then
+    start_save(QUICK)
   elseif entry.kind == "load" then
     start_load(entry.id)
   elseif entry.kind == "delete" then
@@ -959,13 +1076,30 @@ function this.OnPageItem(index, page)
   end
 end
 
+-- A guarded confirmation on screen (src/keys.*): QUICK SAVE's. Closed at once (a popup closed by code counts as NO:
+-- the game does nothing more), then the menu closes and the quick save is made, as with the hotkey.
+function this.OnConfirmation(key)
+  local page = this.page
+  if page and page.quickKey == key then
+    TppUiCommand.ErasePopup()
+    this.padSave = { wait = 0, escSent = false }
+  end
+end
+
 -- Hotkeys (src/keys.*)
-local function can_use_keys()
-  return this.active and not this.flow and not this.page and this.paused == false and not gvars.ini_isTitleMode and
-    not TppUiCommand.IsShowPopup()
+local function can_use_keys(evenPaused)
+  return this.active and not this.flow and not this.page and (evenPaused or this.paused == false) and
+    not gvars.ini_isTitleMode and not TppUiCommand.IsShowPopup()
 end
 
 function this.OnKey(vk)
+  if vk == PAD_START_HOLD then
+    -- START held on a pad: its press opened the pause menu, which closes again before the quick save
+    if this.padQuickSave and can_use_keys(true) then
+      this.padSave = { wait = 0, escSent = false }
+    end
+    return
+  end
   if not can_use_keys() then
     return
   end
@@ -987,6 +1121,56 @@ function this.OnKey(vk)
   end
 end
 
+-- START held on a pad, or QUICK SAVE chosen in the menu: the pause menu is closed (Esc), then the quick save is made.
+local function pad_quick_save()
+  local pending = this.padSave
+  if not pending then
+    return
+  end
+  pending.wait = pending.wait + 1
+  if this.paused then
+    if not pending.escSent then
+      pending.escSent = true
+      mgsv_press_key(VK_ESCAPE, 0)
+    elseif pending.wait > 10 then
+      this.padSave = nil -- the menu did not close
+    end
+    return
+  end
+  this.padSave = nil
+  if this.page then
+    close_page() -- the list the menu showed (QUICK SAVE chosen in it): closed, without the pause menu coming back
+  end
+  if not this.flow then
+    start_save(QUICK)
+  end
+end
+
+-- The game's own save (an autosave: seen in TppSave.DoSave) is still in its saving slot: written again as the
+-- automatic save, right away (a few seconds later the slot may hold something else: a slot written after a read is not
+-- readable), at most every 30 s. Not right after a load (the game saves the loaded game then).
+local AUTO_COPY_INTERVAL = 30
+local AUTO_COPY_WINDOW = 5
+
+local function copy_autosave()
+  if not this.autoPending or this.flow or this.page or busy() then
+    return
+  end
+  local now = os.clock()
+  if this.autoSkipUntil and now < this.autoSkipUntil then
+    this.autoPending = nil
+    return
+  end
+  if now - this.autoPending > AUTO_COPY_WINDOW or (this.autoLast and now - this.autoLast < AUTO_COPY_INTERVAL) then
+    this.autoPending = nil -- too late, or too soon after the last copy: this save is not copied
+    return
+  end
+  this.autoPending = nil
+  this.autoLast = now
+  this.flow = { action = "auto", id = AUTO, state = "writing", wait = 0 }
+  TppScriptVars.WriteSlotToFile(SAVING, FILE_PREFIX .. AUTO, false)
+end
+
 function this.Tick()
   if rawget(_G, "gvars") == nil then -- the game's script vars do not exist yet (early boot)
     return
@@ -997,7 +1181,17 @@ function this.Tick()
     take_menu_texts()
   end
   hook_item_messages()
-  local ok, err = pcall(step)
+  local ok, err = pcall(pad_quick_save)
+  if not ok then
+    log("erro no save rapido do controle: " .. tostring(err))
+    this.padSave = nil
+  end
+  ok, err = pcall(copy_autosave)
+  if not ok then
+    log("erro no salvamento automatico: " .. tostring(err))
+    this.autoPending = nil
+  end
+  ok, err = pcall(step)
   if not ok then
     log("erro: " .. tostring(err))
     this.flow = nil
@@ -1022,7 +1216,8 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Settings
 
-local NAMED_KEYS = { INSERT = 0x2D, HOME = 0x24, END = 0x23, PAGEUP = 0x21, PAGEDOWN = 0x22, DELETE = 0x2E, NONE = 0 }
+local NAMED_KEYS = { INSERT = 0x2D, HOME = 0x24, END = 0x23, PAGEUP = 0x21, PAGEDOWN = 0x22, DELETE = 0x2E, ENTER = 0x0D,
+  SPACE = 0x20, NONE = 0 }
 
 -- A key name as a virtual-key code (0: none), or nil if unknown.
 local function key_code(name)
@@ -1043,9 +1238,19 @@ end
 local function read_config()
   local text = mgsv_read_file(CONFIG_FILE)
   if text == "" then
-    mgsv_write_file(CONFIG_FILE, DEFAULT_CONFIG)
     text = DEFAULT_CONFIG
   end
+  local added = false
+  for _, addition in ipairs(CONFIG_ADDITIONS) do
+    if not string.find(text, "\n" .. addition[1] .. "%s*=") then
+      text = text .. (string.sub(text, -1) == "\n" and "" or "\n") .. addition[2]
+      added = true
+    end
+  end
+  if added or mgsv_read_file(CONFIG_FILE) == "" then
+    mgsv_write_file(CONFIG_FILE, text)
+  end
+  this.padQuickSave = true
   for line in string.gmatch(text, "[^\r\n]+") do
     local name, value = string.match(line, "^%s*([%w_]+)%s*=%s*(.-)%s*$")
     if name == "slots" then
@@ -1062,7 +1267,12 @@ local function read_config()
       else
         log("mgsv_saves.ini: tecla desconhecida: " .. value)
       end
+    elseif name == "pad_quick_save" then
+      this.padQuickSave = string.lower(value) ~= "false"
     end
+  end
+  if mgsv_watch_pad then
+    mgsv_watch_pad(this.padQuickSave)
   end
   if mgsv_watch_keys then
     mgsv_watch_keys(this.QUICK_SAVE_KEY, this.QUICK_LOAD_KEY) -- 0 (none) is left out by the dll
