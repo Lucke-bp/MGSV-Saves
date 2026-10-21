@@ -45,8 +45,8 @@ IMPORTANT
 - Loading a slot makes it your current progress: the game saves it as its own save.
 - Metal Gear Online (mgsvmgo.exe) also loads MSACM32.dll. There the mod does nothing: it only
   passes the calls on to Windows' own msacm32.dll.
-- Other mods: no file conflict with mods that are a dinput8.dll (Infinite Heaven's IHHook,
-  tpp-mod) or with ReShade. Not tested together with Infinite Heaven.
+- Other mods: tested with Infinite Heaven r267 and IHHook r25. No file conflict with mods that
+  are a dinput8.dll (IHHook, tpp-mod) or with ReShade.
 
 
 SETTINGS
@@ -67,6 +67,12 @@ The mod changes no game file and no game code. MSACM32.dll is loaded by the game
 (it passes Windows' audio compression calls on to the real msacm32.dll) and runs the game's
 own script functions: the ones the game uses for its checkpoints, saves and pause menu. The
 slots are written by the game itself, in its own format.
+
+
+CHANGES
+1.0.1 - Works with IHHook: version 1.0.0 turned itself off when IHHook was installed
+        (no SAVE / LOAD in the pause menu).
+1.0.0 - First release.
 
 
 CREDITS
@@ -111,5 +117,7 @@ IMPORTANTE
 - Carregar um slot conta como "continuar do checkpoint" na nota da missão.
 - Salvar segue as regras do jogo: não em alerta, em cutscenes, no ar ou em veículos.
 - No Metal Gear Online (mgsvmgo.exe) a DLL também é carregada, mas não faz nada.
+- Outros mods: testado com o Infinite Heaven r267 e o IHHook r25 (a 1.0.0 se desligava com o
+  IHHook instalado; corrigido na 1.0.1).
 
 CONFIGURAÇÃO: mgsv_saves\mgsv_saves.ini. LOG: mgsv_saves\mgsv_saves.log.

@@ -141,6 +141,54 @@ namespace mod::lua
 			}
 		}
 
+		bool in_exe_image(const uint8_t *address)
+		{
+			const uint8_t *b = base();
+			const auto *dos = reinterpret_cast<const IMAGE_DOS_HEADER *>(b);
+			const auto *nt = reinterpret_cast<const IMAGE_NT_HEADERS *>(b + dos->e_lfanew);
+			return address >= b && address < b + nt->OptionalHeader.SizeOfImage;
+		}
+
+		// Where a jump at the start of some code goes: jmp rel32 (E9) or jmp [rip+0] followed by the address
+		// (FF 25 00000000), the two forms MinHook writes. nullptr if the code is not a jump.
+		const uint8_t *jump_target(const uint8_t *code)
+		{
+			uint8_t bytes[6] = {};
+			if (!read(code, bytes, sizeof(bytes)))
+				return nullptr;
+			int32_t rel = 0;
+			if (bytes[0] == 0xE9)
+			{
+				std::memcpy(&rel, bytes + 1, sizeof(rel));
+				return code + 5 + rel;
+			}
+			if (bytes[0] == 0xFF && bytes[1] == 0x25)
+			{
+				std::memcpy(&rel, bytes + 2, sizeof(rel));
+				const uint8_t *target = nullptr;
+				return read(code + 6 + rel, &target, sizeof(target)) ? target : nullptr;
+			}
+			return nullptr;
+		}
+
+		// Another mod's detour on a game function (IHHook hooks lua_pcall and luaL_loadbuffer with MinHook): the function
+		// starts with a jump out of the exe. Calling it still runs the game's function, through that mod's trampoline.
+		// Returns where the jumps lead (the other mod's code), or nullptr if the code is not such a detour.
+		const uint8_t *detour_of(const uint8_t *code)
+		{
+			const uint8_t *target = jump_target(code);
+			if (target == nullptr || in_exe_image(target))
+				return nullptr;
+			for (int i = 0; i < 3; ++i) // MinHook: a jump to a relay, which jumps to the detour
+			{
+				const uint8_t *next = jump_target(target);
+				if (next == nullptr)
+					break;
+				target = next;
+			}
+			return target;
+		}
+
 		lua_State *main_thread_of(lua_State *L)
 		{
 			const uint8_t *global = nullptr;
@@ -254,11 +302,19 @@ namespace mod::lua
 		for (const code_check &c : k_checks)
 		{
 			uint8_t bytes[sizeof(c.bytes)] = {};
-			if (!read(b + c.rva, bytes, sizeof(bytes)) || std::memcmp(bytes, c.bytes, sizeof(bytes)) != 0)
+			if (read(b + c.rva, bytes, sizeof(bytes)) && std::memcmp(bytes, c.bytes, sizeof(bytes)) == 0)
+				continue;
+			if (const uint8_t *detour = detour_of(b + c.rva))
 			{
-				log_error("Lua: codigo de {} diferente do esperado (+0x{:X}); acesso ao Lua desativado", c.name, c.rva);
-				return false;
+				log_warning("Lua: {} (+0x{:X}) desviada por outro mod ({}); as chamadas passam por esse desvio", c.name, c.rva,
+					describe_address(detour));
+				continue;
 			}
+			std::string found;
+			for (const uint8_t byte : bytes)
+				found += std::format(" {:02X}", byte);
+			log_error("Lua: codigo de {} diferente do esperado (+0x{:X}:{}); acesso ao Lua desativado", c.name, c.rva, found);
+			return false;
 		}
 		void **object = reinterpret_cast<void **>(b + k_api_object);
 		void *vtable = nullptr;

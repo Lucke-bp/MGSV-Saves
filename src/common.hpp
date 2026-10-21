@@ -15,7 +15,7 @@
 #include <string_view>
 
 #define MOD_NAME "MGSV Saves"
-#define MOD_VERSION "1.0.0"
+#define MOD_VERSION "1.0.1"
 
 namespace mod
 {
