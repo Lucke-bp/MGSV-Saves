@@ -1,5 +1,5 @@
 # Abre o MGSV pelo Steam e mostra o log do mod por alguns segundos.
-# Uso: powershell -ExecutionPolicy Bypass -File scripts/launch.ps1 [-Seconds 60]
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/launch.ps1 [-Seconds 60]
 param(
     [int]$Seconds = 60,
     [string]$GameDir = 'C:\Program Files (x86)\Steam\steamapps\common\MGS_TPP'

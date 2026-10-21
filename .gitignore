@@ -3,3 +3,5 @@ external/
 *.log
 .vs/
 dist/
+CLAUDE.md
+docs/

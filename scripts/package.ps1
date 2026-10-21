@@ -1,7 +1,7 @@
 # Monta o pacote de lancamento (Nexus Mods): dist\MGSV_Saves_<versao>.zip
 #   MSACM32.dll, mgsv_saves\mgsv_saves.lua, mgsv_saves\mgsv_saves_lang.lua, README.txt, LICENSE.txt
-# Sem o marcador .dev (o console command.txt fica desligado para os jogadores), sem .ini, log ou saves.
-# Uso: powershell -ExecutionPolicy Bypass -File scripts/package.ps1
+# Without the .dev marker (the command.txt console stays off for players), and without .ini, log or saves.
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/package.ps1
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 

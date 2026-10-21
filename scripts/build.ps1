@@ -1,5 +1,5 @@
-# Compila build\msacm32.dll (proxy + mod) com o MSVC (x64, Release, CRT estatico).
-# Uso: powershell -ExecutionPolicy Bypass -File scripts/build.ps1
+# Builds build\msacm32.dll (proxy + mod) with MSVC (x64, Release, static CRT).
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent $PSScriptRoot

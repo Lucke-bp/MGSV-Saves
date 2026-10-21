@@ -18,7 +18,6 @@ and patches no game code. It uses no networking libraries and does nothing in Me
 - `src/` the DLL (C++20): proxy and exports, access to the game's Lua, text replacement, key and controller input.
 - `lua/` the mod's scripts (`mgsv_saves.lua`, translations in `mgsv_saves_lang.lua`), copied next to the DLL.
 - `package/` the files that go into the Nexus zip (README, license).
-- `docs/ROADMAP.md`, `CLAUDE.md` notes from reverse engineering the game's executable (in Portuguese).
 
 ## Build
 
@@ -37,6 +36,8 @@ Only game version 1.0.15.4: with any other version the mod stays inactive. Works
 (IHHook hooks some of the game's Lua functions; the mod follows those hooks).
 
 ## Credits and license
+
+Made by Luckebp, with the help of [Claude](https://claude.com/claude-code) (Anthropic).
 
 [MIT](LICENSE). Thanks to TinManTex for [mgsv-deminified-lua](https://github.com/TinManTex/mgsv-deminified-lua),
 the readable copy of the game's scripts used as reference.

@@ -1,6 +1,6 @@
-# Copia o mod (msacm32.dll + scripts Lua) para a pasta do jogo. Nao altera nenhum arquivo original do jogo.
-# Uso: powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1 [-Force]
-#   -Force: sobrescreve uma msacm32.dll que nao foi instalada por este script
+# Copies the mod (msacm32.dll + Lua scripts) into the game folder. Changes no original game file.
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1 [-Force]
+#   -Force: overwrites a msacm32.dll that was not installed by this script
 param(
     [switch]$Force,
     [string]$GameDir = 'C:\Program Files (x86)\Steam\steamapps\common\MGS_TPP'
@@ -19,7 +19,7 @@ New-Item -ItemType Directory -Force $modDir | Out-Null
 
 function Get-Marker([string]$path) { if (Test-Path $path) { (Get-Content $path -Raw).Trim() } }
 
-# Nao sobrescrever uma msacm32.dll de outro programa: guardamos o hash do que instalamos.
+# Never overwrite another program's msacm32.dll: the hash of what we installed is kept.
 $marker = Join-Path $modDir 'installed_msacm32.sha256'
 $target = Join-Path $GameDir 'msacm32.dll'
 if ((Test-Path $target) -and -not $Force) {
